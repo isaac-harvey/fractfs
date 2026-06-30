@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fractfs"
+version = "0.1.0"
+description = "Drop-in tiered file storage for apps on ephemeral nodes: redirect big/durable files to Databricks Volumes or S3, checkpoint hot local state for restart safety."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [{ name = "Isaac Harvey" }]
+keywords = ["databricks", "volumes", "tiered-storage", "fsspec", "checkpoint", "ephemeral"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX",
+    "Topic :: System :: Filesystems",
+]
+dependencies = [
+    "pathspec>=0.11",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+s3 = ["fsspec>=2023.1", "s3fs>=2023.1"]
+hashing = ["xxhash>=3.0"]
+dev = ["pytest>=7", "pytest-cov", "ruff"]
+
+[project.urls]
+Homepage = "https://github.com/isaac-harvey/fractfs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fractfs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

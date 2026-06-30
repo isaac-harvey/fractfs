@@ -1,0 +1,22 @@
+# Example fractfs configuration.
+#
+# Copy to your app root and set the env vars (at minimum fractfs_VOLUME_ROOT):
+#   export fractfs_BACKEND=volumes
+#   export fractfs_VOLUME_ROOT=/Volumes/main/default/app_state
+#   export fractfs_SYNC_INTERVAL=300
+
+[dirs]
+# Big/durable data — redirected to the Volume, never checkpointed.
+paths = ["data/blobs", "exports", "cache/parquet"]
+
+[ignore]
+# Never synced or checkpointed. A directory pattern like ".locks/" pins a whole
+# subtree to node-local disk, so lock files with unpredictable names created
+# inside a [dirs] directory stay local instead of leaking onto the Volume.
+patterns = ["*.tmp", "__pycache__/", ".DS_Store", ".locks/"]
+
+[local]
+# Small hot files co-written with blobs — kept on fast local disk but checkpointed.
+# Exact names (manifest.json, index.sqlite) are local from their first write;
+# a glob like "*.meta.json" can only be guaranteed local OUTSIDE a [dirs] dir.
+patterns = ["manifest.json", "index.sqlite"]
