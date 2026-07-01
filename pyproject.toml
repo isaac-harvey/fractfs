@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fractfs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Drop-in tiered file storage for apps on ephemeral nodes: redirect big/durable files to any mounted filesystem or object store, checkpoint hot local state for restart safety."
 readme = "README.md"
 requires-python = ">=3.9"
