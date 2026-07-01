@@ -1,7 +1,7 @@
 """Config loader: parse ``.fractfs.toml`` + environment into a ``Config``.
 
 Env vars override the TOML file for the scalar fields so deployments can tune
-behaviour (backend, volume root, cadence) without editing the repo.
+behaviour (backend, remote root, cadence) without editing the repo.
 """
 
 from __future__ import annotations
@@ -21,8 +21,15 @@ else:  # pragma: no cover - exercised only on <3.11
 
 CONFIG_FILENAME = ".fractfs.toml"
 
-# Backends we know how to provision against.
-BACKENDS = ("volumes", "s3", "local")
+# Backends we know how to provision against, named by *mechanism*:
+#   mount  — the remote store is reachable as a POSIX filesystem path
+#            (a Databricks Volume mount, NFS/EFS, SMB, or a plain local dir).
+#   fsspec — the remote store is an fsspec URL (S3, GCS, ADLS, ...).
+BACKENDS = ("mount", "fsspec")
+
+# Friendly aliases normalised to a canonical backend. ``s3`` is by far the most
+# common fsspec target, so it stays as an on-ramp even though the impl is generic.
+_BACKEND_ALIASES = {"s3": "fsspec"}
 
 # pathspec renamed the gitignore factory; prefer the current name, fall back for
 # older pathspec releases that only ship "gitwildmatch".
@@ -46,8 +53,8 @@ class Config:
     """
 
     root: Path
-    backend: str = "local"
-    volume_root: Optional[Path] = None
+    backend: str = "mount"
+    remote_root: Optional[Path] = None
     scratch: Path = Path(_DEFAULT_SCRATCH)
     sync_interval: int = _DEFAULT_SYNC_INTERVAL
     checkpoint_subdir: str = _DEFAULT_CHECKPOINT_SUBDIR
@@ -62,34 +69,36 @@ class Config:
 
     def __post_init__(self) -> None:
         self.root = Path(self.root).resolve()
-        if self.volume_root is not None:
-            self.volume_root = Path(self.volume_root)
+        if self.remote_root is not None:
+            self.remote_root = Path(self.remote_root)
         self.scratch = Path(self.scratch)
         # Normalize dir paths to forward-slash relative strings (drop "./", trailing "/").
         self.dir_paths = [d.strip("/").replace("\\", "/") for d in self.dir_paths if d.strip("/")]
         self.ignore_spec = pathspec.PathSpec.from_lines(_PATHSPEC_FACTORY, self.ignore_patterns)
         self.local_spec = pathspec.PathSpec.from_lines(_PATHSPEC_FACTORY, self.local_patterns)
+        self.backend = _BACKEND_ALIASES.get(self.backend, self.backend)
         if self.backend not in BACKENDS:
             raise ValueError(
-                f"unknown fractfs backend {self.backend!r}; expected one of {BACKENDS}"
+                f"unknown fractfs backend {self.backend!r}; expected one of {BACKENDS} "
+                f"(aliases: {', '.join(_BACKEND_ALIASES)})"
             )
 
     # -- derived paths -----------------------------------------------------
 
     @property
     def checkpoint_root(self) -> Optional[Path]:
-        """Absolute path under the Volume where LOCAL_SYNCED checkpoints land."""
-        if self.volume_root is None:
+        """Absolute path under the remote store where LOCAL_SYNCED checkpoints land."""
+        if self.remote_root is None:
             return None
-        return self.volume_root / self.checkpoint_subdir
+        return self.remote_root / self.checkpoint_subdir
 
     def is_provisionable(self) -> bool:
         """Whether dir-redirect / back-symlink provisioning can run.
 
-        Requires a Volume root; without one (pure ``local`` backend, no mount)
-        only checkpoint/restore against a local volume_root is meaningful.
+        Requires a remote root; without one there is no durable store to redirect
+        into, so fractfs runs in passthrough mode (no redirect, no checkpoint).
         """
-        return self.volume_root is not None
+        return self.remote_root is not None
 
 
 def _env(name: str) -> Optional[str]:
@@ -111,9 +120,9 @@ def load_config(root: Optional[os.PathLike] = None) -> Config:
     ignore = data.get("ignore", {}).get("patterns", []) or []
     local = data.get("local", {}).get("patterns", []) or []
 
-    backend = _env("BACKEND") or data.get("backend") or "local"
+    backend = _env("BACKEND") or data.get("backend") or "mount"
 
-    volume_root = _env("VOLUME_ROOT") or data.get("volume_root")
+    remote_root = _env("REMOTE_ROOT") or data.get("remote_root")
     scratch = _env("SCRATCH") or data.get("scratch") or _DEFAULT_SCRATCH
     checkpoint_subdir = (
         _env("CHECKPOINT_SUBDIR") or data.get("checkpoint_subdir") or _DEFAULT_CHECKPOINT_SUBDIR
@@ -133,7 +142,7 @@ def load_config(root: Optional[os.PathLike] = None) -> Config:
     return Config(
         root=root,
         backend=backend,
-        volume_root=volume_root,
+        remote_root=remote_root,
         scratch=scratch,
         sync_interval=sync_interval,
         checkpoint_subdir=checkpoint_subdir,

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 class Tier(Enum):
     """Where a path physically lives and whether it is checkpointed."""
 
-    VOLUME = "volume"  # redirected to the remote store; not checkpointed (already durable)
+    REMOTE = "remote"  # redirected to the remote store; not checkpointed (already durable)
     LOCAL_SYNCED = "local_synced"  # local disk, included in the checkpoint
     LOCAL_IGNORED = "local_ignored"  # local disk, never checkpointed
 
@@ -26,7 +26,7 @@ def resolve(rel_path: str, cfg: "Config") -> Tier:
     """Map a repo-relative POSIX path to its tier.
 
     Precedence (highest first): ignore > local > dirs > default. ``local`` and
-    ``ignore`` exist precisely to pull specific small files *out* of the Volume
+    ``ignore`` exist precisely to pull specific small files *out* of the remote
     redirect, so they must win over ``dirs``.
     """
     rel = _normalize(rel_path)
@@ -35,7 +35,7 @@ def resolve(rel_path: str, cfg: "Config") -> Tier:
     if cfg.local_spec.match_file(rel):
         return Tier.LOCAL_SYNCED
     if _under_any_dir(rel, cfg.dir_paths):
-        return Tier.VOLUME
+        return Tier.REMOTE
     return Tier.LOCAL_SYNCED  # default: local + checkpointed
 
 

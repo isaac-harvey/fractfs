@@ -11,11 +11,11 @@ def test_default_is_local_synced(tmp_path):
     assert resolve("foo/bar.txt", c) == Tier.LOCAL_SYNCED
 
 
-def test_dirs_redirect_to_volume(tmp_path):
+def test_dirs_redirect_to_remote(tmp_path):
     c = cfg(tmp_path, dirs=["data/blobs"])
-    assert resolve("data/blobs/x.parquet", c) == Tier.VOLUME
-    assert resolve("data/blobs", c) == Tier.VOLUME
-    assert resolve("data/blobs/nested/y.parquet", c) == Tier.VOLUME
+    assert resolve("data/blobs/x.parquet", c) == Tier.REMOTE
+    assert resolve("data/blobs", c) == Tier.REMOTE
+    assert resolve("data/blobs/nested/y.parquet", c) == Tier.REMOTE
     assert resolve("data/other.txt", c) == Tier.LOCAL_SYNCED
 
 
@@ -27,8 +27,8 @@ def test_ignore_beats_everything(tmp_path):
 def test_local_overrides_dirs(tmp_path):
     c = cfg(tmp_path, dirs=["data/blobs"], local=["manifest.json"])
     assert resolve("data/blobs/manifest.json", c) == Tier.LOCAL_SYNCED
-    # but a sibling blob still goes to the volume
-    assert resolve("data/blobs/big.parquet", c) == Tier.VOLUME
+    # but a sibling blob still goes to the remote store
+    assert resolve("data/blobs/big.parquet", c) == Tier.REMOTE
 
 
 def test_anchored_pattern_matches_only_there(tmp_path):
@@ -40,5 +40,5 @@ def test_anchored_pattern_matches_only_there(tmp_path):
 
 def test_leading_dotslash_and_absolute_normalized(tmp_path):
     c = cfg(tmp_path, dirs=["data/blobs"])
-    assert resolve("./data/blobs/x", c) == Tier.VOLUME
-    assert resolve("/data/blobs/x", c) == Tier.VOLUME
+    assert resolve("./data/blobs/x", c) == Tier.REMOTE
+    assert resolve("/data/blobs/x", c) == Tier.REMOTE

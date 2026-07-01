@@ -3,9 +3,11 @@
 **Drop-in tiered file storage for apps on ephemeral nodes.**
 
 `fractfs` lets an app with limited, ephemeral local disk transparently push large
-files to durable remote storage (Databricks Volumes primarily; S3 / any `fsspec`
-backend by extension) while keeping small hot state local, with periodic
+files to durable remote storage while keeping small hot state local, with periodic
 checkpoint/restore so a node stop/start doesn't lose data.
+
+In essence, the file system is *fractured* into two layers, handled so that you
+don't have to think about it.
 
 The only change to your application is one line at startup:
 
@@ -14,24 +16,25 @@ import fractfs
 fractfs.init()
 ```
 
-plus a `.fractfs.toml` in the repo. No I/O interception, no monkeypatching — it
-works at the filesystem layer via symlinks, so it's library-agnostic (duckdb,
-polars, pyarrow, raw C all just work).
+Selection of what goes where is handled by a `.fractfs.toml` file in the repo.
+No I/O interception, no monkeypatching — it works at the filesystem layer via
+symlinks, so it's library-agnostic (duckdb, polars, raw C all just work).
 
-## Why
+## Any Remote Storage
 
-Apps moving from Posit Connect to Databricks Apps run on nodes with limited,
-ephemeral local disk. Large files don't fit and shouldn't live on the node, and
-anything written locally is lost when the node restarts. `fractfs` tags
-directories and files into tiers and provisions the filesystem so the right data
-lands in the right place — without intercepting I/O calls.
+`fractfs` doesn't care *what* the durable store is, only *how* it's reached:
+
+| Backend | Reached as | Examples | Install |
+|---|---|---|---|
+| `mount` | a POSIX filesystem path | Databricks Volume mount, NFS/EFS, SMB, a plain local dir | core (no deps) |
+| `fsspec` | an fsspec URL | S3, GCS, ADLS, … | `fractfs[fsspec]` |
 
 ## Install
 
 ```bash
-pip install fractfs            # core (Databricks Volumes mount / local backend)
-pip install 'fractfs[s3]'      # + S3 / fsspec backends
-pip install 'fractfs[hashing]' # + xxhash content-based change detection
+pip install fractfs             # core: the mount backend (any POSIX path)
+pip install 'fractfs[s3]'       # + fsspec/s3fs for S3/GCS/ADLS object stores
+pip install 'fractfs[hashing]'  # + xxhash content-based change detection
 ```
 
 ## Configuration
@@ -40,7 +43,7 @@ A single `.fractfs.toml` at the app root:
 
 ```toml
 [dirs]
-# Directories whose contents live on the Volume (durable remote store).
+# Directories whose contents live on the durable remote store.
 # Directory-granular. New files created here later also land remote by default.
 paths = ["data/blobs", "exports", "cache/parquet"]
 
@@ -54,29 +57,30 @@ patterns = ["*.tmp", "__pycache__/", ".DS_Store"]
 patterns = ["*.meta.json", "manifest.json", "index.sqlite"]
 ```
 
-### Environment variables
+### Environment Variables
 
 | Var | Meaning | Example |
 |---|---|---|
-| `fractfs_BACKEND` | `volumes` \| `s3` \| `local` | `volumes` |
-| `fractfs_VOLUME_ROOT` | Mount root (or fsspec URL) for the remote store | `/Volumes/cat/schema/vol` |
-| `fractfs_SYNC_INTERVAL` | Checkpoint cadence (seconds) | `300` |
-| `fractfs_SCRATCH` | Node-local scratch root for back-symlink targets | `/tmp/fractfs` |
-| `fractfs_CHECKPOINT_SUBDIR` | Where checkpoints live under the Volume | `_checkpoint` |
-| `fractfs_CONTENT_HASH` | Use content hashing for change detection | `true` |
-| `fractfs_AUTO_IGNORE_BUNDLE` | Exclude the deploy bundle from the checkpoint | `true` |
-| `fractfs_ROOT` | App root holding `.fractfs.toml` | `/app` |
+| `FRACTFS_BACKEND` | `mount` \| `fsspec` (alias `s3`) | `mount` |
+| `FRACTFS_REMOTE_ROOT` | Mount path or fsspec URL for the durable store | `/Volumes/cat/schema/vol`, `s3://bucket/app` |
+| `FRACTFS_SYNC_INTERVAL` | Checkpoint cadence (seconds) | `300` |
+| `FRACTFS_SCRATCH` | Node-local scratch root for back-symlink targets | `/tmp/fractfs` |
+| `FRACTFS_CHECKPOINT_SUBDIR` | Where checkpoints live under the remote store | `_checkpoint` |
+| `FRACTFS_CONTENT_HASH` | Use content hashing for change detection | `true` |
+| `FRACTFS_AUTO_IGNORE_BUNDLE` | Exclude the deploy bundle from the checkpoint | `true` |
+| `FRACTFS_ROOT` | App root holding `.fractfs.toml` | `/app` |
 
-Env vars override the TOML scalar fields. (Both `fractfs_` and `FRACTFS_`
-prefixes are accepted.)
+Env vars override the TOML scalar fields. (Both `FRACTFS_` and `fractfs_`
+prefixes are accepted.) With no `FRACTFS_REMOTE_ROOT` set, fractfs runs in
+passthrough mode — no redirect, no checkpoint.
 
-## The three tiers
+## Tiers
 
 | Tier | Source | Lands | Checkpointed? | Mechanism |
 |---|---|---|---|---|
-| `dirs` | `[dirs].paths` | **Volume** | No (already durable) | directory symlink → `VOL/<dir>` |
-| `local` | `[local].patterns` | **Node** | **Yes** | pre-created back-symlink when inside a Volume dir |
-| `ignore` | `[ignore].patterns` | **Node** | **No** | back-symlink (kept off Volume) + sync walker skips |
+| `dirs` | `[dirs].paths` | **Remote** | No (already durable) | directory symlink → `REMOTE/<dir>` |
+| `local` | `[local].patterns` | **Node** | **Yes** | pre-created back-symlink when inside a remote dir |
+| `ignore` | `[ignore].patterns` | **Node** | **No** | back-symlink (kept off remote) + sync walker skips |
 | *(default)* | everything else | **Node** | **Yes** | normal local disk, checkpointed |
 
 ### Precedence (the load-bearing rule)
@@ -85,68 +89,11 @@ When a path matches more than one tier, highest priority wins:
 
 1. **`ignore`** — never synced, stays local.
 2. **`local`** — stays local, synced.
-3. **`dirs`** — Volume redirect (the default for everything else under the dir).
+3. **`dirs`** — remote redirect (the default for everything else under the dir).
 
 Patterns use gitignore syntax (via [`pathspec`](https://pypi.org/project/pathspec/))
 matched against the full relative path: `manifest.json` matches at any depth;
 `data/blobs/manifest.json` matches only there.
-
-## The `local` tier — what it is and is not
-
-`local` is for small files co-written with large blobs (a `manifest.json` next to
-`x.parquet`) that must survive restart but shouldn't take the FUSE cost of going
-direct-to-Volume. Local ext4 gives proper atomic `rename`; a Volume FUSE mount
-has real per-op overhead and weak atomicity, so for small mutable metadata
-local-tier is both faster and safer.
-
-**The limit:** `local` does **not** give blob↔metadata transactional
-consistency. On cold restart you restore a checkpoint up to
-`fractfs_SYNC_INTERVAL` seconds stale, while the blob on the Volume is current.
-Use `local` only for independent / rebuildable small state. If the small file is
-a pointer into the blob that must be exactly consistent, either put it in a
-`[dirs]` directory too (shared fate, accept the FUSE cost) or make it
-reconstructable from the blob on startup.
-
-### Keeping `local` files always-local (lock files, sqlite, manifests)
-
-A `[dirs]` directory is a symlink to the Volume, so files created inside it
-follow that link to the Volume *by default*. To keep a `local`/`ignore` file on
-fast node-local disk instead, fractfs places a **back-symlink** on the Volume
-that points at node-local scratch:
-
-```
-VOL/data/blobs/manifest.json  ->  $fractfs_SCRATCH/data/blobs/manifest.json
-```
-
-A symlink has to exist before the write to redirect it, so what fractfs can pin
-depends on whether it can predict the path:
-
-- **Exact filenames** (`manifest.json`, `index.sqlite`, or anchored
-  `data/blobs/manifest.json`) are pinned with a back-symlink **pre-created at
-  `init()`**, possibly dangling — so the file is local from its **very first
-  write**, no restart needed.
-- **Directory patterns** (a pattern ending in `/`, e.g. `.locks/`) pin a whole
-  subtree. *Any* filename created inside it lands local — this is the escape
-  hatch for lock files and other state with unpredictable names. Point the app at
-  a pinned subdirectory:
-
-  ```toml
-  [ignore]
-  patterns = [".locks/"]    # data/blobs/.locks/<anything> stays node-local
-  ```
-
-- **Globs** (`*.lock`, `*.tmp`) **cannot** be pre-pinned — fractfs can't know the
-  filename until the app creates it, and intercepting the write would mean
-  monkeypatching I/O (explicitly rejected). A `*.lock` created *directly* inside a
-  `[dirs]` dir therefore lands on the Volume. `init()` emits a warning (also in
-  `status()["warnings"]`) when a `[local]` glob could be affected.
-
-**The boundary, stated plainly:** anything that spawns sidecar files with names
-you don't control *next to* the data — a SQLite db emitting `-wal`/`-shm`, a
-library dropping `<name>.lock` beside the file it locks — should **not** live
-loose inside a `[dirs]` directory. Put that state in the default local tree (not
-under any `[dirs]` path) where it's plain local disk + checkpointed with all
-sidecars co-located, or confine it to a pinned `foo/` subdirectory.
 
 ## Public API
 
@@ -163,90 +110,25 @@ fractfs.shutdown()    # stop the sync daemon (runs a final checkpoint)
 `init()` blocks on restore before returning, so the app never reads cold state.
 The provisioner refuses to replace a non-empty real local directory with a
 symlink unless you pass `fractfs.init(force=True)` (which migrates its contents
-to the Volume first).
+to the remote store first).
 
-## The deploy bundle is auto-ignored
+## Additional Docs
 
-The platform re-supplies your deployed app bundle (code, assets, `.fractfs.toml`)
-from the image on every cold start, so checkpointing it would copy your whole app
-to durable storage every interval for nothing. fractfs detects the bundle and
-excludes it automatically.
+- **[docs/tiers.md](docs/tiers.md)** — what the `local` tier does and doesn't
+  guarantee, and how to keep specific files (lock files, sqlite, manifests)
+  always-local inside a remote-redirected directory.
+- **[docs/deployment.md](docs/deployment.md)** — deploy-bundle auto-ignore, the
+  fast-ephemeral-disk (NVMe) layout, and the known sharp edges (multi-replica,
+  FUSE atomicity, change detection).
 
-**How:** at each `init()` (after provisioning, before restore) fractfs takes the
-set of files already present in the local tree and subtracts anything it already
-knows is runtime state (everything in the checkpoint manifest). On a cold
-ephemeral node the remainder is exactly the freshly-deployed bundle; on a warm /
-persistent disk the subtraction keeps real runtime files *out* of the bundle so
-they keep being checkpointed. It's recomputed every start, so it tracks redeploys
-that add or remove files with no config changes. `status()` reports
-`bundle_file_count`.
+### Platform-Specific Guides
 
-**Turn it off** with `fractfs_AUTO_IGNORE_BUNDLE=false` (or `auto_ignore_bundle =
-false` in the TOML) if you want every local file checkpointed regardless.
+Copy-paste config for common setups:
 
-**Caveat (persistent disks only):** a runtime file created but never checkpointed
-before a restart that *survives* on a persistent local disk could be
-misclassified as bundle and then skipped. This can't happen on an ephemeral disk
-(uncheckpointed files are already gone), and a persistent local disk usually
-doesn't need the checkpoint anyway — but disable the feature if you rely on one.
-
-## Deploying on fast ephemeral disk (NVMe instance store)
-
-When a node has local NVMe, the cleanest layout is to put the **entire working
-directory on NVMe** — fastest possible disk for all hot state — and let fractfs
-divert big files to durable storage and checkpoint the rest. NVMe being wiped on
-stop/replace is exactly what the checkpoint covers.
-
-No new fractfs concept is needed: NVMe simply *becomes* the local disk. (NVMe is
-never a durable *target* — you never checkpoint *to* it; it's a fast, ephemeral
-*source* that gets checkpointed, the same role as the default local tree.)
-
-```bash
-# 1. NVMe instance store mounted at /mnt/nvme (instance/launch config).
-# 2. Run the app from there so the bundle and all writes live on NVMe.
-export fractfs_ROOT=/mnt/nvme/app
-export fractfs_SCRATCH=/mnt/nvme/app/.fractfs-scratch   # back-symlink targets on NVMe too
-# 3. Durable store for big files + checkpoints (NOT on NVMe):
-export fractfs_BACKEND=s3
-export fractfs_VOLUME_ROOT=s3://my-bucket/my-app
-export fractfs_SYNC_INTERVAL=300
-```
-
-```toml
-# /mnt/nvme/app/.fractfs.toml
-[dirs]
-paths = ["data/blobs", "exports"]   # big files -> S3, direct
-```
-
-Then:
-
-- **Big files** (`[dirs]`) go straight to S3 — never on NVMe, never checkpointed.
-- **Runtime state** (default tier) lives on fast NVMe and is checkpointed to S3.
-- **The bundle** is auto-ignored (re-supplied by the image each start).
-- **On cold start**, the platform re-extracts the bundle onto NVMe and fractfs
-  restores runtime state from the S3 checkpoint before your app reads anything.
-
-Two notes:
-
-- **Reads of the bundle stay local on NVMe; you don't need EBS for it.** Keep EBS
-  only if you genuinely want the bundle to *persist* (e.g. slow re-deploys) — and
-  if so, an OverlayFS mount (EBS lower, NVMe upper) gives "reads fall through to
-  EBS, all writes land on NVMe" transparently. That's an infra-level mount set up
-  before the app starts; fractfs composes on top of it unchanged.
-- **Splitting hot dirs across two local disks** (some on NVMe, some on EBS, at the
-  same time) is the one case that would need a future "fast-local redirect target"
-  tier. The single-disk layout above needs none of it.
-
-## Sharp edges
-
-- **Multi-replica.** Back-symlink targets are node-local; the link itself lives on
-  the Volume and is visible to other replicas. Fine for single-replica apps —
-  document/guard before running multiple replicas against the same Volume.
-- **FUSE atomicity.** Checkpoint writes use temp-file-then-`rename`. If your mount
-  doesn't honour atomic rename, the backend falls back to a plain copy.
-- **Change detection.** Default is size+mtime (cheap, can miss same-size edits).
-  Set `fractfs_CONTENT_HASH=true` (and install `fractfs[hashing]`) for content
-  hashing on correctness-sensitive trees.
+- **[docs/aws.md](docs/aws.md)** — S3 remote, EBS vs instance-store NVMe, OverlayFS, EFS alternative.
+- **[docs/databricks.md](docs/databricks.md)** — Volume remote, deploying on Databricks Apps.
+- **[docs/gcp.md](docs/gcp.md)** — GCS remote (gcsfs), GKE/Cloud Run/Local SSD, Filestore alternative.
+- **[docs/azure.md](docs/azure.md)** — ADLS/Blob remote (adlfs), AKS/Container Apps, Azure Files alternative.
 
 ## License
 

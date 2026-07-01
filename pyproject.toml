@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "fractfs"
 version = "0.1.0"
-description = "Drop-in tiered file storage for apps on ephemeral nodes: redirect big/durable files to Databricks Volumes or S3, checkpoint hot local state for restart safety."
+description = "Drop-in tiered file storage for apps on ephemeral nodes: redirect big/durable files to any mounted filesystem or object store, checkpoint hot local state for restart safety."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Isaac Harvey" }]
-keywords = ["databricks", "volumes", "tiered-storage", "fsspec", "checkpoint", "ephemeral"]
+keywords = ["tiered-storage", "fsspec", "checkpoint", "ephemeral", "s3", "databricks"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -26,6 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The fsspec backend (S3, GCS, ADLS, any fsspec URL). ``s3`` is a kept alias for
+# the common case; both pull the same deps (add gcsfs/adlfs yourself for those).
+fsspec = ["fsspec>=2023.1", "s3fs>=2023.1"]
 s3 = ["fsspec>=2023.1", "s3fs>=2023.1"]
 hashing = ["xxhash>=3.0"]
 dev = ["pytest>=7", "pytest-cov", "ruff"]

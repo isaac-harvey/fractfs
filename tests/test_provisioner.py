@@ -6,7 +6,7 @@ from fractfs.provisioner import ClobberError, provision
 from conftest import make_config
 
 
-def test_dir_becomes_symlink_to_volume(layout):
+def test_dir_becomes_symlink_to_remote(layout):
     root, vol, scratch = layout
     cfg = make_config(root, vol, scratch, dirs=["data/blobs"])
     provision(cfg)
@@ -24,7 +24,7 @@ def test_idempotent(layout):
     assert (root / "data" / "blobs").is_symlink()
 
 
-def test_writes_through_symlink_land_on_volume(layout):
+def test_writes_through_symlink_land_on_remote(layout):
     root, vol, scratch = layout
     cfg = make_config(root, vol, scratch, dirs=["data/blobs"])
     provision(cfg)
@@ -62,7 +62,7 @@ def test_back_symlink_pins_local_file_inside_dir(layout):
         root, vol, scratch, dirs=["data/blobs"], local=["manifest.json"]
     )
     provision(cfg)
-    # simulate a pre-existing manifest already on the volume
+    # simulate a pre-existing manifest already on the remote store
     manifest = vol / "data" / "blobs" / "manifest.json"
     manifest.write_text("v1")
     # re-provision: it should get pinned back to scratch

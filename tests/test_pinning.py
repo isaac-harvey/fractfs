@@ -57,10 +57,10 @@ def test_concrete_local_file_is_local_from_first_write(layout):
     assert link.is_symlink()  # pre-created, dangling
     assert not link.exists()  # nothing written yet
 
-    # First write through the app path lands in scratch, never on the volume.
+    # First write through the app path lands in scratch, never on the remote store.
     (root / "data" / "blobs" / "manifest.json").write_text("v1")
     assert (scratch / "data" / "blobs" / "manifest.json").read_text() == "v1"
-    assert link.is_symlink()  # still a link, not a real file on the volume
+    assert link.is_symlink()  # still a link, not a real file on the remote store
 
 
 def test_concrete_pin_is_idempotent(layout):
@@ -91,11 +91,11 @@ def test_directory_pin_keeps_arbitrary_names_local(layout):
     assert resolve("data/blobs/.locks/abc123.lock", cfg) == Tier.LOCAL_IGNORED
 
 
-def test_directory_pin_migrates_existing_volume_data(layout):
+def test_directory_pin_migrates_existing_remote_data(layout):
     root, vol, scratch = layout
     cfg = make_config(root, vol, scratch, dirs=["data/blobs"], local=["state/"])
     provision(cfg)  # creates the dir symlink + pins state/
-    # simulate data that previously landed on the volume under state/
+    # simulate data that previously landed on the remote store under state/
     (vol / "data" / "blobs" / "state").mkdir(parents=True, exist_ok=True)
     # break the existing pin to mimic a pre-pin layout, then re-provision
     real = vol / "data" / "blobs" / "state"

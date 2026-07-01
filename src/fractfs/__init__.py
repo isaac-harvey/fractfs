@@ -60,7 +60,7 @@ def init(
 
     Blocks on restore before returning so the app never reads cold state. Safe to
     call once at startup. ``force=True`` lets provisioning migrate a non-empty real
-    local dir into the Volume (see :class:`ClobberError`).
+    local dir into the remote store (see :class:`ClobberError`).
     """
     global _RUNTIME
 
@@ -87,7 +87,7 @@ def init(
                 log.info("fractfs restored %d checkpointed file(s)", len(restored))
     else:
         log.warning(
-            "fractfs: no fractfs_VOLUME_ROOT set; running in passthrough mode "
+            "fractfs: no fractfs_REMOTE_ROOT set; running in passthrough mode "
             "(no redirect, no checkpoint)."
         )
 
@@ -118,7 +118,7 @@ def status() -> Dict[str, Any]:
         tracked[d] = resolve(d, cfg).value
     return {
         "backend": cfg.backend,
-        "volume_root": str(cfg.volume_root) if cfg.volume_root else None,
+        "remote_root": str(cfg.remote_root) if cfg.remote_root else None,
         "scratch": str(cfg.scratch),
         "sync_interval": cfg.sync_interval,
         "provisionable": cfg.is_provisionable(),
@@ -155,7 +155,7 @@ def _atexit_stop() -> None:
 
 
 class _NullEngine:
-    """Stand-in when there is no Volume: checkpoint/restore are no-ops."""
+    """Stand-in when there is no remote store: checkpoint/restore are no-ops."""
 
     def __init__(self, cfg: Config):
         self.cfg = cfg

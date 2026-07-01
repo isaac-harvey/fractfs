@@ -1,9 +1,12 @@
 """Backend abstraction for the remote/durable store.
 
-The primary target (Databricks Volumes) is a POSIX FUSE mount, and ``local``
-backing is just a directory, so both are served by :class:`PosixBackend`. The
-``fsspec``-backed path (``s3`` and friends) is wired through :class:`FsspecBackend`
-which is imported lazily so the base install stays dependency-light.
+Two families, split by how the store is *reached* rather than by vendor:
+
+* ``mount`` — anything reachable as a POSIX filesystem path: a Databricks Volume
+  FUSE mount, NFS/EFS, an SMB share, or a plain local directory. All served by
+  :class:`PosixBackend`, which needs no third-party dependencies.
+* ``fsspec`` — anything reachable as an fsspec URL (S3, GCS, ADLS, ...), served by
+  :class:`FsspecBackend`. Imported lazily so the base install stays dep-light.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ class Backend(Protocol):
 
 
 class PosixBackend:
-    """Backend over a POSIX-visible root (a Volume mount or a local directory).
+    """Backend over a POSIX-visible root (a mount — Volume/NFS/SMB — or a local dir).
 
     ``root`` is the absolute remote root; ``path`` arguments to every method are
     interpreted relative to it (or accepted as already-absolute paths under it).
@@ -99,13 +102,11 @@ class PosixBackend:
 
 def make_backend(cfg) -> Backend:
     """Construct the backend for a :class:`~fractfs.config.Config`."""
-    if cfg.backend in ("volumes", "local"):
-        if cfg.volume_root is None:
-            raise ValueError(
-                f"backend {cfg.backend!r} requires fractfs_VOLUME_ROOT to be set"
-            )
-        return PosixBackend(cfg.volume_root)
-    if cfg.backend == "s3":
+    if cfg.backend == "mount":
+        if cfg.remote_root is None:
+            raise ValueError("backend 'mount' requires fractfs_REMOTE_ROOT to be set")
+        return PosixBackend(cfg.remote_root)
+    if cfg.backend == "fsspec":
         from .fsspec_backend import FsspecBackend
 
         return FsspecBackend(cfg)

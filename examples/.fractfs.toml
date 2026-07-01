@@ -1,12 +1,15 @@
 # Example fractfs configuration.
 #
-# Copy to your app root and set the env vars (at minimum fractfs_VOLUME_ROOT):
-#   export fractfs_BACKEND=volumes
-#   export fractfs_VOLUME_ROOT=/Volumes/main/default/app_state
+# Copy to your app root and set the env vars (at minimum fractfs_REMOTE_ROOT):
+#   export fractfs_BACKEND=mount     # a POSIX path: Volume mount, NFS, local dir
+#   export fractfs_REMOTE_ROOT=/Volumes/main/default/app_state
 #   export fractfs_SYNC_INTERVAL=300
+# Or an object store:
+#   export fractfs_BACKEND=s3        # alias for the generic fsspec backend
+#   export fractfs_REMOTE_ROOT=s3://my-bucket/my-app
 
 [dirs]
-# Big/durable data — redirected to the Volume, never checkpointed.
+# Big/durable data — redirected to the remote store, never checkpointed.
 paths = ["data/blobs", "exports", "cache/parquet"]
 
 [ignore]

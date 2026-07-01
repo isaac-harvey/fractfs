@@ -4,8 +4,8 @@ import fractfs
 
 
 CONFIG = """
-backend = "volumes"
-volume_root = "{vol}"
+backend = "mount"
+remote_root = "{vol}"
 scratch = "{scratch}"
 sync_interval = 0
 
@@ -34,8 +34,8 @@ def test_init_provisions_and_status(layout, monkeypatch):
     assert (root / "data" / "blobs").is_symlink()
 
     st = fractfs.status()
-    assert st["backend"] == "volumes"
-    assert st["dirs"]["data/blobs"] == "volume"
+    assert st["backend"] == "mount"
+    assert st["dirs"]["data/blobs"] == "remote"
     assert st["provisionable"] is True
     assert st["daemon_running"] is False
 
@@ -57,12 +57,12 @@ def test_init_restore_roundtrip(layout, monkeypatch):
     assert (root / "notes.txt").read_text() == "remember me"
 
 
-def test_passthrough_without_volume(tmp_path, monkeypatch):
+def test_passthrough_without_remote(tmp_path, monkeypatch):
     root = tmp_path / "app"
     root.mkdir()
-    (root / ".fractfs.toml").write_text('backend = "local"\n')
+    (root / ".fractfs.toml").write_text('backend = "mount"\n')
     monkeypatch.setenv("fractfs_ROOT", str(root))
-    monkeypatch.delenv("fractfs_VOLUME_ROOT", raising=False)
+    monkeypatch.delenv("fractfs_REMOTE_ROOT", raising=False)
 
     importlib.reload(fractfs)
     fractfs.init(start_daemon=False)

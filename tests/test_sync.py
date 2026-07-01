@@ -35,7 +35,7 @@ def test_ignored_files_are_not_checkpointed(layout):
     assert not (vol / "_checkpoint" / "scratch.tmp").exists()
 
 
-def test_volume_tier_files_not_checkpointed(layout):
+def test_remote_tier_files_not_checkpointed(layout):
     root, vol, scratch = layout
     cfg = make_config(root, vol, scratch, dirs=["data/blobs"])
     provision(cfg)
@@ -66,7 +66,7 @@ def test_local_tier_inside_dir_checkpointed_from_scratch(layout):
         root, vol, scratch, dirs=["data/blobs"], local=["manifest.json"]
     )
     provision(cfg)
-    # writing the manifest creates it on the volume; pin it
+    # writing the manifest creates it on the remote store; pin it
     (vol / "data" / "blobs" / "manifest.json").write_text("m1")
     provision(cfg)  # pins back to scratch
     assert physical_local_path(cfg, "data/blobs/manifest.json") == scratch / "data/blobs/manifest.json"

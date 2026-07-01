@@ -3,10 +3,10 @@
 The only fractfs-specific lines are the import and init() at the top; everything
 below is ordinary file I/O that lands in the right tier automatically.
 
-Run with a local backend to try it without a real Volume::
+Try it without a real remote store by pointing the mount backend at a temp dir::
 
-    export fractfs_BACKEND=volumes
-    export fractfs_VOLUME_ROOT=/tmp/fractfs-vol
+    export fractfs_BACKEND=mount
+    export fractfs_REMOTE_ROOT=/tmp/fractfs-remote
     export fractfs_ROOT="$(dirname "$0")"
     python app.py
 """
@@ -21,7 +21,7 @@ fractfs.init()  # <-- the whole integration
 
 
 def main():
-    # A large blob: lands on the Volume (directory-redirected).
+    # A large blob: lands on the remote store (directory-redirected).
     with open("data/blobs/dataset.bin", "wb") as fh:
         fh.write(b"\x00" * (1 << 20))
 

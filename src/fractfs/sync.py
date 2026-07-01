@@ -1,8 +1,8 @@
 """Checkpoint / restore of LOCAL_SYNCED state, plus the background daemon.
 
-The remote/durable store already holds VOLUME-tier data, so checkpointing only
+The remote/durable store already holds REMOTE-tier data, so checkpointing only
 concerns LOCAL_SYNCED files: the default local tree *and* ``local``-tier files
-pinned inside a Volume dir (which physically live in scratch). LOCAL_IGNORED is
+pinned inside a remote dir (which physically live in scratch). LOCAL_IGNORED is
 skipped everywhere.
 """
 
@@ -121,7 +121,7 @@ class SyncEngine:
         detect_bundle() relies on seeing the full set.
         """
         # Pass A: the default local tree under root. Do not follow symlinks, so we
-        # never descend the Volume dir links (their contents are remote).
+        # never descend the remote dir links (their contents are remote).
         for abs_path in _walk_files(self.cfg.root, follow=False):
             rel = _rel(abs_path, self.cfg.root)
             if rel is None:
@@ -129,7 +129,7 @@ class SyncEngine:
             if resolve(rel, self.cfg) == Tier.LOCAL_SYNCED and not _under_any_dir(rel, self.cfg.dir_paths):
                 yield rel, abs_path
 
-        # Pass B: back-symlinked local files inside Volume dirs live in scratch.
+        # Pass B: back-symlinked local files inside remote dirs live in scratch.
         if self.cfg.scratch.exists():
             for abs_path in _walk_files(self.cfg.scratch, follow=False):
                 rel = _rel(abs_path, self.cfg.scratch)
@@ -150,8 +150,8 @@ class SyncEngine:
     #
     # The change-detection manifest lives on the durable store next to the
     # checkpoint so subsequent cold starts don't re-copy everything. It is moved
-    # through a local scratch temp file so this works for any backend (POSIX or
-    # fsspec), not just a mounted Volume.
+    # through a local scratch temp file so this works for any backend (mount or
+    # fsspec), not just a POSIX mount.
 
     def _state_remote(self) -> str:
         return f"{self._ckpt}/{STATE_FILENAME}"

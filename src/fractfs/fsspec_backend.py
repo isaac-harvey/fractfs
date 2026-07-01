@@ -1,7 +1,8 @@
-"""fsspec-backed implementation (S3 / ADLS / GCS) — optional extra.
+"""fsspec-backed implementation (S3 / GCS / ADLS / any fsspec URL) — optional extra.
 
 Kept in its own module so importing fractfs never pulls in ``fsspec``/``s3fs``
-unless an fsspec backend is actually requested. Install with ``fractfs[s3]``.
+unless an fsspec backend is actually requested. Install with ``fractfs[fsspec]``
+(or the ``fractfs[s3]`` alias, since S3 is the common case).
 """
 
 from __future__ import annotations
@@ -11,9 +12,9 @@ from typing import Iterable
 
 
 class FsspecBackend:
-    """Backend over any fsspec filesystem rooted at ``cfg.volume_root`` URL.
+    """Backend over any fsspec filesystem rooted at ``cfg.remote_root`` URL.
 
-    ``volume_root`` here is an fsspec URL such as ``s3://bucket/prefix``.
+    ``remote_root`` here is an fsspec URL such as ``s3://bucket/prefix``.
     """
 
     def __init__(self, cfg):
@@ -21,11 +22,11 @@ class FsspecBackend:
             import fsspec
         except ImportError as exc:  # pragma: no cover - depends on optional extra
             raise ImportError(
-                "the s3/fsspec backend requires the 'fsspec' extra: pip install 'fractfs[s3]'"
+                "the fsspec backend requires the 'fsspec' extra: pip install 'fractfs[fsspec]'"
             ) from exc
-        if cfg.volume_root is None:
-            raise ValueError("fsspec backend requires fractfs_VOLUME_ROOT (an fsspec URL)")
-        self.url_root = str(cfg.volume_root).rstrip("/")
+        if cfg.remote_root is None:
+            raise ValueError("fsspec backend requires fractfs_REMOTE_ROOT (an fsspec URL)")
+        self.url_root = str(cfg.remote_root).rstrip("/")
         self.fs, self.path_root = fsspec.core.url_to_fs(self.url_root)
 
     def _abs(self, path: str) -> str:
