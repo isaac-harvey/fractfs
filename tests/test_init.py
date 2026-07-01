@@ -36,7 +36,7 @@ def test_init_provisions_and_status(layout, monkeypatch):
     st = fractfs.status()
     assert st["backend"] == "mount"
     assert st["dirs"]["data/blobs"] == "remote"
-    assert st["provisionable"] is True
+    assert st["supports_redirect"] is True
     assert st["daemon_running"] is False
 
 
@@ -67,5 +67,5 @@ def test_passthrough_without_remote(tmp_path, monkeypatch):
     importlib.reload(fractfs)
     fractfs.init(start_daemon=False)
     st = fractfs.status()
-    assert st["provisionable"] is False
+    assert st["has_remote_store"] is False
     assert fractfs.sync_now() == []

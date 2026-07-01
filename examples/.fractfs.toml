@@ -1,12 +1,14 @@
 # Example fractfs configuration.
 #
-# Copy to your app root and set the env vars (at minimum fractfs_REMOTE_ROOT):
-#   export fractfs_BACKEND=mount     # a POSIX path: Volume mount, NFS, local dir
-#   export fractfs_REMOTE_ROOT=/Volumes/main/default/app_state
-#   export fractfs_SYNC_INTERVAL=300
-# Or an object store:
-#   export fractfs_BACKEND=s3        # alias for the generic fsspec backend
-#   export fractfs_REMOTE_ROOT=s3://my-bucket/my-app
+# Copy to your app root and set the env vars (at minimum FRACTFS_REMOTE_ROOT):
+#   export FRACTFS_BACKEND=mount     # a POSIX path: Volume mount, NFS, local dir
+#   export FRACTFS_REMOTE_ROOT=/Volumes/main/default/app_state
+#   export FRACTFS_SYNC_INTERVAL=300
+#
+# The [dirs] big-file redirect below needs the 'mount' backend (a POSIX path).
+# To send big files to an object store, FUSE-mount it (mountpoint-s3/gcsfuse/
+# blobfuse2) and point FRACTFS_REMOTE_ROOT at the mount. The 's3'/fsspec backend
+# (FRACTFS_REMOTE_ROOT=s3://bucket/app) does checkpoint/restore only — no [dirs].
 
 [dirs]
 # Big/durable data — redirected to the remote store, never checkpointed.
@@ -15,7 +17,7 @@ paths = ["data/blobs", "exports", "cache/parquet"]
 [ignore]
 # Never synced or checkpointed. A directory pattern like ".locks/" pins a whole
 # subtree to node-local disk, so lock files with unpredictable names created
-# inside a [dirs] directory stay local instead of leaking onto the Volume.
+# inside a [dirs] directory stay local instead of leaking onto the remote store.
 patterns = ["*.tmp", "__pycache__/", ".DS_Store", ".locks/"]
 
 [local]

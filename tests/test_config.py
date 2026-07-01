@@ -53,7 +53,7 @@ def test_missing_toml_is_empty_config(tmp_path):
     cfg = load_config(tmp_path)
     assert cfg.dir_paths == []
     assert cfg.backend == "mount"
-    assert not cfg.is_provisionable()
+    assert not cfg.has_remote_store()
 
 
 def test_unknown_backend_raises(layout):

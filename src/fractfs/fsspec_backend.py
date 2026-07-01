@@ -42,7 +42,13 @@ class FsspecBackend:
         self.fs.makedirs(self._abs(path), exist_ok=True)
 
     def put_file(self, local_path: os.PathLike, remote_path: str) -> None:
-        self.fs.put_file(str(local_path), self._abs(remote_path))
+        dst = self._abs(remote_path)
+        # Directory-based filesystems (file://, sftp, …) need the parent to exist;
+        # on true object stores makedirs is a no-op, so this is safe either way.
+        parent = dst.rsplit("/", 1)[0]
+        if parent and parent != dst:
+            self.fs.makedirs(parent, exist_ok=True)
+        self.fs.put_file(str(local_path), dst)
 
     def get_file(self, remote_path: str, local_path: os.PathLike) -> None:
         os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)

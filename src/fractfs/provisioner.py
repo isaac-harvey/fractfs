@@ -35,8 +35,11 @@ def provision(cfg: Config, *, force: bool = False) -> List[str]:
     remote store before replacing it with a symlink (otherwise that case raises
     :class:`ClobberError` to avoid eating real data on a misconfigured run).
     """
-    if not cfg.is_provisionable():
-        raise ValueError("provisioning requires fractfs_REMOTE_ROOT to be set")
+    if not cfg.supports_redirect():
+        raise ValueError(
+            "provisioning requires the 'mount' backend with fractfs_REMOTE_ROOT set; "
+            f"backend {cfg.backend!r} cannot lay down directory symlinks"
+        )
 
     actions: List[str] = []
     cfg.scratch.mkdir(parents=True, exist_ok=True)

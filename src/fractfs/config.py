@@ -10,7 +10,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pathspec
 
@@ -54,7 +54,10 @@ class Config:
 
     root: Path
     backend: str = "mount"
-    remote_root: Optional[Path] = None
+    # A mount backend stores a filesystem ``Path``; an fsspec backend stores the
+    # store's URL (``s3://…``) as a ``str`` — see __post_init__ for why it must not
+    # be run through pathlib.
+    remote_root: Optional[Union[Path, str]] = None
     scratch: Path = Path(_DEFAULT_SCRATCH)
     sync_interval: int = _DEFAULT_SYNC_INTERVAL
     checkpoint_subdir: str = _DEFAULT_CHECKPOINT_SUBDIR
@@ -69,36 +72,58 @@ class Config:
 
     def __post_init__(self) -> None:
         self.root = Path(self.root).resolve()
-        if self.remote_root is not None:
-            self.remote_root = Path(self.remote_root)
         self.scratch = Path(self.scratch)
-        # Normalize dir paths to forward-slash relative strings (drop "./", trailing "/").
-        self.dir_paths = [d.strip("/").replace("\\", "/") for d in self.dir_paths if d.strip("/")]
-        self.ignore_spec = pathspec.PathSpec.from_lines(_PATHSPEC_FACTORY, self.ignore_patterns)
-        self.local_spec = pathspec.PathSpec.from_lines(_PATHSPEC_FACTORY, self.local_patterns)
         self.backend = _BACKEND_ALIASES.get(self.backend, self.backend)
         if self.backend not in BACKENDS:
             raise ValueError(
                 f"unknown fractfs backend {self.backend!r}; expected one of {BACKENDS} "
                 f"(aliases: {', '.join(_BACKEND_ALIASES)})"
             )
+        if self.remote_root is not None:
+            # The mount backend addresses the store as a filesystem path. The fsspec
+            # backend addresses it as a URL (s3://, gs://, abfs://) which must NOT go
+            # through pathlib: Path("s3://b/x") collapses the "//" to "s3:/b/x", which
+            # fsspec then resolves as a *local* file path — silently writing to disk
+            # instead of the object store. So keep URLs as plain strings.
+            if self.backend == "mount":
+                self.remote_root = Path(self.remote_root)
+            else:
+                self.remote_root = str(self.remote_root)
+        # Normalize dir paths to forward-slash relative strings (drop "./", trailing "/").
+        self.dir_paths = [d.strip("/").replace("\\", "/") for d in self.dir_paths if d.strip("/")]
+        self.ignore_spec = pathspec.PathSpec.from_lines(_PATHSPEC_FACTORY, self.ignore_patterns)
+        self.local_spec = pathspec.PathSpec.from_lines(_PATHSPEC_FACTORY, self.local_patterns)
 
     # -- derived paths -----------------------------------------------------
 
     @property
     def checkpoint_root(self) -> Optional[Path]:
-        """Absolute path under the remote store where LOCAL_SYNCED checkpoints land."""
-        if self.remote_root is None:
+        """Absolute path under the remote store where LOCAL_SYNCED checkpoints land.
+
+        Only meaningful for a filesystem (``mount``) root; fsspec backends address
+        checkpoints by URL string, not this path, so this returns ``None`` there.
+        """
+        if not isinstance(self.remote_root, Path):
             return None
         return self.remote_root / self.checkpoint_subdir
 
-    def is_provisionable(self) -> bool:
-        """Whether dir-redirect / back-symlink provisioning can run.
+    def has_remote_store(self) -> bool:
+        """Whether a durable store is configured at all.
 
-        Requires a remote root; without one there is no durable store to redirect
-        into, so fractfs runs in passthrough mode (no redirect, no checkpoint).
+        Gates checkpoint/restore (available on every backend). Without a remote
+        root fractfs runs in passthrough mode (no redirect, no checkpoint).
         """
         return self.remote_root is not None
+
+    def supports_redirect(self) -> bool:
+        """Whether ``[dirs]`` big-file redirect can run.
+
+        Redirect is implemented with directory symlinks, which need a POSIX target,
+        so only the ``mount`` backend qualifies. An object store (fsspec) has no
+        symlinks — FUSE-mount it (mountpoint-s3/gcsfuse/blobfuse2) and use the
+        ``mount`` backend for redirect, or use fsspec for checkpoint/restore only.
+        """
+        return self.backend == "mount" and self.remote_root is not None
 
 
 def _env(name: str) -> Optional[str]:

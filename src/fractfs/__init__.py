@@ -34,7 +34,7 @@ __all__ = [
     "ClobberError",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.1"
 
 log = logging.getLogger("fractfs")
 
@@ -65,15 +65,29 @@ def init(
     global _RUNTIME
 
     cfg = load_config(root)
-    engine = SyncEngine(cfg, backend=make_backend(cfg)) if cfg.is_provisionable() else None
+
+    # [dirs] redirect is symlink-based and needs a POSIX target. On an object-store
+    # (fsspec) backend there are no symlinks, and REMOTE-tier files are never
+    # checkpointed — so a [dirs] file would be stranded on ephemeral disk and lost.
+    # Refuse loudly rather than silently drop data.
+    if cfg.dir_paths and cfg.has_remote_store() and not cfg.supports_redirect():
+        raise ValueError(
+            f"[dirs].paths redirect is not supported by the {cfg.backend!r} backend: "
+            "directory symlinks need a POSIX path. FUSE-mount the object store "
+            "(mountpoint-s3 / gcsfuse / blobfuse2) and use backend='mount', or remove "
+            "[dirs].paths and use fractfs only for checkpoint/restore of local state."
+        )
+
+    engine = SyncEngine(cfg, backend=make_backend(cfg)) if cfg.has_remote_store() else None
 
     for warning in warnings_for(cfg):
         log.warning("fractfs config: %s", warning)
 
-    if cfg.is_provisionable():
-        actions = provision(cfg, force=force)
-        for a in actions:
-            log.debug("provision: %s", a)
+    if cfg.has_remote_store():
+        if cfg.supports_redirect():
+            actions = provision(cfg, force=force)
+            for a in actions:
+                log.debug("provision: %s", a)
         # Identify the deployed bundle before restore so it's excluded from the
         # checkpoint (re-supplied from the image on every cold start anyway).
         if cfg.auto_ignore_bundle and engine is not None:
@@ -121,7 +135,8 @@ def status() -> Dict[str, Any]:
         "remote_root": str(cfg.remote_root) if cfg.remote_root else None,
         "scratch": str(cfg.scratch),
         "sync_interval": cfg.sync_interval,
-        "provisionable": cfg.is_provisionable(),
+        "has_remote_store": cfg.has_remote_store(),
+        "supports_redirect": cfg.supports_redirect(),
         "daemon_running": rt.daemon is not None,
         "last_sync_time": getattr(rt.engine, "last_sync_time", None),
         "auto_ignore_bundle": cfg.auto_ignore_bundle,

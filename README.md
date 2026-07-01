@@ -24,10 +24,19 @@ symlinks, so it's library-agnostic (duckdb, polars, raw C all just work).
 
 `fractfs` doesn't care *what* the durable store is, only *how* it's reached:
 
-| Backend | Reached as | Examples | Install |
-|---|---|---|---|
-| `mount` | a POSIX filesystem path | Databricks Volume mount, NFS/EFS, SMB, a plain local dir | core (no deps) |
-| `fsspec` | an fsspec URL | S3, GCS, ADLS, … | `fractfs[fsspec]` |
+| Backend | Reached as | `[dirs]` redirect | Checkpoint/restore | Install |
+|---|---|---|---|---|
+| `mount` | a POSIX filesystem path | ✅ yes | ✅ yes | core (no deps) |
+| `fsspec` | an fsspec URL | ❌ no | ✅ yes | `fractfs[fsspec]` |
+
+`mount` examples: a Databricks Volume mount, NFS/EFS, SMB, a plain local dir.
+`fsspec` examples: S3, GCS, ADLS. `s3` is a kept alias for `fsspec`.
+
+The **`[dirs]` big-file redirect** is implemented with directory symlinks, which
+need a POSIX target — so it requires the `mount` backend. To redirect big files to
+an object store, FUSE-mount it (mountpoint-s3 / gcsfuse / blobfuse2) and use the
+`mount` backend; the `fsspec` backend on its own gives you checkpoint/restore of
+local state, not redirect. See the [platform recipes](#platform-recipes).
 
 ## Install
 

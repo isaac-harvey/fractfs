@@ -40,30 +40,37 @@ No new fractfs concept is needed: NVMe simply *becomes* the local disk. (NVMe is
 never a durable *target* — you never checkpoint *to* it; it's a fast, ephemeral
 *source* that gets checkpointed, the same role as the default local tree.)
 
+The durable store here is a **`mount`** remote — the `[dirs]` redirect is
+symlink-based and needs a POSIX target. That can be a Volume/NFS/EFS mount, or an
+object store you've FUSE-mounted (mountpoint-s3, gcsfuse, blobfuse2). To use an
+object store *without* FUSE, drop `[dirs]` and use the `fsspec` backend for
+checkpoint/restore only — see the [platform recipes](../README.md#platform-recipes).
+
 ```bash
 # 1. NVMe instance store mounted at /mnt/nvme (instance/launch config).
 # 2. Run the app from there so the bundle and all writes live on NVMe.
 export FRACTFS_ROOT=/mnt/nvme/app
 export FRACTFS_SCRATCH=/mnt/nvme/app/.fractfs-scratch   # back-symlink targets on NVMe too
-# 3. Durable store for big files + checkpoints (NOT on NVMe):
-export FRACTFS_BACKEND=s3
-export FRACTFS_REMOTE_ROOT=s3://my-bucket/my-app
+# 3. Durable store for big files + checkpoints (NOT on NVMe). A POSIX mount:
+#    an NFS/EFS path, or a FUSE-mounted bucket (e.g. mount-s3 my-bucket /mnt/s3).
+export FRACTFS_BACKEND=mount
+export FRACTFS_REMOTE_ROOT=/mnt/s3/my-app
 export FRACTFS_SYNC_INTERVAL=300
 ```
 
 ```toml
 # /mnt/nvme/app/.fractfs.toml
 [dirs]
-paths = ["data/blobs", "exports"]   # big files -> S3, direct
+paths = ["data/blobs", "exports"]   # big files -> the mounted store, direct
 ```
 
 Then:
 
-- **Big files** (`[dirs]`) go straight to S3 — never on NVMe, never checkpointed.
-- **Runtime state** (default tier) lives on fast NVMe and is checkpointed to S3.
+- **Big files** (`[dirs]`) go straight to the mounted store — never on NVMe, never checkpointed.
+- **Runtime state** (default tier) lives on fast NVMe and is checkpointed to the store.
 - **The bundle** is auto-ignored (re-supplied by the image each start).
 - **On cold start**, the platform re-extracts the bundle onto NVMe and fractfs
-  restores runtime state from the S3 checkpoint before your app reads anything.
+  restores runtime state from the checkpoint before your app reads anything.
 
 Two notes:
 
