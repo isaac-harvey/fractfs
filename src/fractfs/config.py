@@ -55,6 +55,7 @@ class Config:
     ignore_patterns: List[str] = field(default_factory=list)
     local_patterns: List[str] = field(default_factory=list)
     use_content_hash: bool = False
+    auto_ignore_bundle: bool = True
 
     ignore_spec: pathspec.PathSpec = field(init=False)
     local_spec: pathspec.PathSpec = field(init=False)
@@ -124,6 +125,11 @@ def load_config(root: Optional[os.PathLike] = None) -> Config:
     hash_raw = _env("CONTENT_HASH") or data.get("content_hash")
     use_content_hash = _as_bool(hash_raw, default=False)
 
+    bundle_raw = _env("AUTO_IGNORE_BUNDLE")
+    if bundle_raw is None and "auto_ignore_bundle" in data:
+        bundle_raw = data.get("auto_ignore_bundle")
+    auto_ignore_bundle = _as_bool(bundle_raw, default=True)
+
     return Config(
         root=root,
         backend=backend,
@@ -135,6 +141,7 @@ def load_config(root: Optional[os.PathLike] = None) -> Config:
         ignore_patterns=list(ignore),
         local_patterns=list(local),
         use_content_hash=use_content_hash,
+        auto_ignore_bundle=auto_ignore_bundle,
     )
 
 

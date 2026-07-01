@@ -42,6 +42,30 @@ class SyncEngine:
         self.backend = backend or make_backend(cfg)
         self._ckpt = cfg.checkpoint_subdir
         self.last_sync_time: Optional[float] = None
+        # Files belonging to the deployed app bundle: re-supplied from the image
+        # on every cold start, so never worth checkpointing. Populated by
+        # detect_bundle() at init() when cfg.auto_ignore_bundle is on.
+        self.bundle_paths: set = set()
+
+    # -- bundle detection --------------------------------------------------
+
+    def detect_bundle(self) -> set:
+        """Identify deployed-bundle files so they're excluded from the checkpoint.
+
+        The bundle is everything present in the local tree at startup that is
+        *not* already known runtime state (i.e. not in the checkpoint manifest).
+        On a cold ephemeral disk that's exactly the freshly-deployed app; on a
+        warm/persistent disk the subtraction keeps real runtime files out of the
+        bundle so they keep being checkpointed.
+
+        Recomputed each ``init()`` so it tracks redeploys automatically. Must run
+        before any checkpoint (and before/around restore — restored files are in
+        the manifest, so they're never mistaken for bundle).
+        """
+        known_runtime = set(self._load_state().keys())
+        present = {rel for rel, _abs in self._iter_candidates()}
+        self.bundle_paths = present - known_runtime
+        return self.bundle_paths
 
     # -- checkpoint --------------------------------------------------------
 
@@ -49,7 +73,9 @@ class SyncEngine:
         """Copy changed LOCAL_SYNCED files to the checkpoint. Returns copied paths."""
         state = self._load_state()
         copied: List[str] = []
-        for rel_path, abs_path in self._iter_local_synced():
+        for rel_path, abs_path in self._iter_candidates():
+            if rel_path in self.bundle_paths:
+                continue  # part of the deploy bundle; re-supplied on cold start
             sig = self._signature(abs_path)
             if state.get(rel_path) == sig:
                 continue  # unchanged since last checkpoint
@@ -88,8 +114,12 @@ class SyncEngine:
 
     # -- walking -----------------------------------------------------------
 
-    def _iter_local_synced(self) -> Iterator[Tuple[str, Path]]:
-        """Yield (rel_path, abs_path) for every physically-local LOCAL_SYNCED file."""
+    def _iter_candidates(self) -> Iterator[Tuple[str, Path]]:
+        """Yield (rel_path, abs_path) for every physically-local LOCAL_SYNCED file.
+
+        This is the raw set *before* bundle exclusion (checkpoint applies that);
+        detect_bundle() relies on seeing the full set.
+        """
         # Pass A: the default local tree under root. Do not follow symlinks, so we
         # never descend the Volume dir links (their contents are remote).
         for abs_path in _walk_files(self.cfg.root, follow=False):

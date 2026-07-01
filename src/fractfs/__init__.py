@@ -74,6 +74,12 @@ def init(
         actions = provision(cfg, force=force)
         for a in actions:
             log.debug("provision: %s", a)
+        # Identify the deployed bundle before restore so it's excluded from the
+        # checkpoint (re-supplied from the image on every cold start anyway).
+        if cfg.auto_ignore_bundle and engine is not None:
+            bundle = engine.detect_bundle()
+            if bundle:
+                log.info("fractfs auto-ignoring %d deploy-bundle file(s)", len(bundle))
         # Cold-start ordering: restore must finish before the app reads anything.
         if restore and engine is not None:
             restored = engine.restore()
@@ -118,6 +124,8 @@ def status() -> Dict[str, Any]:
         "provisionable": cfg.is_provisionable(),
         "daemon_running": rt.daemon is not None,
         "last_sync_time": getattr(rt.engine, "last_sync_time", None),
+        "auto_ignore_bundle": cfg.auto_ignore_bundle,
+        "bundle_file_count": len(getattr(rt.engine, "bundle_paths", set())),
         "dirs": tracked,
         "ignore_patterns": list(cfg.ignore_patterns),
         "local_patterns": list(cfg.local_patterns),
@@ -152,6 +160,10 @@ class _NullEngine:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.last_sync_time = None
+        self.bundle_paths: set = set()
+
+    def detect_bundle(self) -> set:
+        return set()
 
     def checkpoint(self) -> List[str]:
         return []
